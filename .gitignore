@@ -1,0 +1,6 @@
+/target
+/logs
+/dicom_storage
+
+config.json
+worklist.json

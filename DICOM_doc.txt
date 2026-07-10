@@ -1,0 +1,9 @@
+### Crate ###	                ### Odpowiedzialność ###
+
+dicom-object	                odczyt i zapis obiektów DICOM (dataset)
+dicom-core	                    typy danych, tagi, VR, Value
+dicom-encoding	                kodowanie i dekodowanie datasetów
+dicom-parser	                parser strumienia danych DICOM
+dicom-transfer-syntax-registry	rejestr składni transferu (Transfer Syntax)
+dicom-ul	                    warstwa komunikacyjna DICOM (Association, PDU)
+dicom-dimse	                    komunikaty DIMSE (C-ECHO, C-STORE, C-FIND itd.)
