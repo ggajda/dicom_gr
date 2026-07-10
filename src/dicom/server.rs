@@ -18,7 +18,12 @@ use tracing::{error, info, warn};
 pub async fn start(config: &Config) -> Result<()> {
     let version = env!("CARGO_PKG_VERSION");
     let addr = format!("{}:{}", config.host, config.port);
-    let listener = TcpListener::bind(&addr).await?;
+
+    let listener = TcpListener::bind(&addr).await.map_err(|e| {
+        error!("Server error: {}", e);
+        e
+    })?;
+
     let dicom_storage = Arc::new(PathBuf::from(&config.dicom_storage_path));
 
     info!("DICOM-GR server (v{}) is running on {}", &version, &addr);
@@ -30,7 +35,7 @@ pub async fn start(config: &Config) -> Result<()> {
         let dicom_storage_path = Arc::clone(&dicom_storage);
 
         tokio::task::spawn(async move {
-            let mut association_options = ServerAssociationOptions::new(); //.accept_any();
+            let mut association_options = ServerAssociationOptions::new().accept_any();
 
             for &syntax in ABSTRACT_SYNTAX {
                 association_options = association_options.with_abstract_syntax(syntax);
