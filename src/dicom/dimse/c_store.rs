@@ -89,6 +89,7 @@ fn c_store_response(
 async fn save_dicom_file(
     storage_dir: &Path,
     sop_instance_uid: &str,
+    sop_class_uid: &str,
     dicom_data: &[u8],
 ) -> Result<()> {
     fs::create_dir_all(storage_dir).await?;
@@ -100,7 +101,40 @@ async fn save_dicom_file(
 
     let path = storage_dir.join(format!("{safe_name}.dcm"));
 
-    fs::write(path, dicom_data).await?;
+    // Clone the values into owned types so they can be safely passed to the spawned thread.
+    let sop_class_uid_owned = sop_class_uid.to_string();
+    let sop_instance_uid_owned = sop_instance_uid.to_string();
+    let dicom_data_vec = dicom_data.to_vec();
+    let path_clone = path.clone();
+
+    tokio::task::spawn_blocking(move || -> Result<()> {
+        use dicom_object::FileDicomObject;
+        use std::fs::OpenOptions;
+        use std::io::Write;
+
+        // 1. Build the file meta header inside this thread.
+        let meta = dicom_object::meta::FileMetaTableBuilder::new()
+            .media_storage_sop_class_uid(sop_class_uid_owned)
+            .media_storage_sop_instance_uid(sop_instance_uid_owned)
+            .transfer_syntax(entries::EXPLICIT_VR_LITTLE_ENDIAN.uid())
+            .build()?;
+
+        // 2. Create an empty file object; now `file_object` is definitely in scope.
+        let file_object = FileDicomObject::new_empty_with_meta(meta);
+
+        // Step A: Write the correct official DICOM header (128B + DICM + Group 0002).
+        file_object.write_to_file(&path_clone)?;
+
+        // Step B: Open the file in append mode and add the raw network image bytes.
+        let mut file = OpenOptions::new()
+            .write(true)
+            .append(true)
+            .open(&path_clone)?;
+
+        file.write_all(&dicom_data_vec)?;
+        Ok(())
+    })
+    .await??;
 
     Ok(())
 }
@@ -141,7 +175,14 @@ pub async fn c_store(
         addr, message_id, sop_instance_uid
     );
 
-    if let Err(e) = save_dicom_file(dicom_storage_path, &sop_instance_uid, dicom_data).await {
+    if let Err(e) = save_dicom_file(
+        dicom_storage_path,
+        &sop_instance_uid,
+        &sop_class_uid,
+        dicom_data,
+    )
+    .await
+    {
         error!("Failed to save the DICOM file for {}: {}", addr, e);
         return;
     }
