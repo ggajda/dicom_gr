@@ -127,7 +127,7 @@ async fn save_dicom_file(
 
         // Step B: Open the file in append mode and add the raw network image bytes.
         let mut file = OpenOptions::new()
-            .write(true)
+            //.write(true)
             .append(true)
             .open(&path_clone)?;
 
