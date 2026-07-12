@@ -1,6 +1,6 @@
 use crate::dicom::syntax::C_FIND_RSP;
-use crate::dicom::wl::worklist::{WorklistItem, get_worklist};
-
+use crate::dicom::wl::source::{DbSource, get_worklist};
+use crate::dicom::wl::worklist::WorklistItem;
 use anyhow::Result;
 use dicom_core::{Tag, VR, header::DataElement, value::PrimitiveValue};
 use dicom_dictionary_std::tags;
@@ -234,10 +234,11 @@ pub async fn c_find(
         filter.modality.as_deref().unwrap_or_default()
     );
 
-    let worklist = match get_worklist() {
+    // Getting worklist data / DbSource::Json => from json file / DbSource::Default => default data from Worklist struct
+    let worklist = match get_worklist(DbSource::Json) {
         Ok(list) => list,
         Err(e) => {
-            error!("Error while loading worklist from JSON file: {}", e);
+            error!("Error while loading worklist: {}", e);
             return; // lub odpowiedni status błędu DICOM, jeśli wymagany
         }
     };

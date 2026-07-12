@@ -35,7 +35,8 @@ pub async fn start(config: &Config) -> Result<()> {
         let dicom_storage_path = Arc::clone(&dicom_storage);
 
         tokio::task::spawn(async move {
-            let mut association_options = ServerAssociationOptions::new().accept_any();
+            // Association configuration
+            let mut association_options = ServerAssociationOptions::new(); //.accept_any();
 
             for &syntax in ABSTRACT_SYNTAX {
                 association_options = association_options.with_abstract_syntax(syntax);
@@ -47,6 +48,7 @@ pub async fn start(config: &Config) -> Result<()> {
 
             let association_result = association_options.establish_async(socket).await;
 
+            // Run association
             let mut scp = match association_result {
                 Ok(assoc) => {
                     info!("DICOM association established successfully with {}", addr);
