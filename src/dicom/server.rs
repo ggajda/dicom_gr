@@ -1,4 +1,4 @@
-use super::helper::{command_tag_string, command_tag_u16};
+use super::helper::{command_tag_string, command_tag_u16, save_dicom_file};
 use super::syntax::{ABSTRACT_SYNTAX, C_ECHO_RQ, C_FIND_RQ, C_STORE_RQ, TRANSFER_SYNTAXES};
 use super::{c_echo, c_find, c_store};
 use crate::config::model::Config;
@@ -10,8 +10,6 @@ use dicom_ul::{
     Pdu,
     pdu::{PDataValue, PDataValueType},
 };
-use std::path::PathBuf;
-use std::sync::Arc;
 use tokio::net::TcpListener;
 use tracing::{error, info, warn};
 
@@ -24,15 +22,11 @@ pub async fn start(config: &Config) -> Result<()> {
         e
     })?;
 
-    let dicom_storage = Arc::new(PathBuf::from(&config.dicom_storage_path));
-
     info!("DICOM-GR server (v{}) is running on {}", &version, &addr);
 
     loop {
         let (socket, addr) = listener.accept().await?;
         info!("Connection from {}", addr);
-
-        let dicom_storage_path = Arc::clone(&dicom_storage);
 
         tokio::task::spawn(async move {
             // Association configuration
@@ -207,7 +201,9 @@ pub async fn start(config: &Config) -> Result<()> {
                                             addr,
                                             presentation_context_id,
                                             &mut scp,
-                                            &dicom_storage_path,
+                                            |sop_inst, sop_class, data| {
+                                                Box::pin(save_dicom_file(sop_inst, sop_class, data))
+                                            },
                                         )
                                         .await;
 

@@ -11,9 +11,9 @@ use dicom_ul::{
     Pdu,
     pdu::{PDataValue, PDataValueType},
 };
+use std::future::Future;
 use std::net::SocketAddr;
-use std::path::Path;
-use tokio::fs;
+use std::pin::Pin;
 use tokio::net::TcpStream;
 use tracing::{error, info};
 
@@ -86,60 +86,63 @@ fn c_store_response(
     Ok(out)
 }
 
-async fn save_dicom_file(
-    storage_dir: &Path,
-    sop_instance_uid: &str,
-    sop_class_uid: &str,
-    dicom_data: &[u8],
-) -> Result<()> {
-    fs::create_dir_all(storage_dir).await?;
+// async fn save_dicom_file(
+//     storage_dir: &Path,
+//     sop_instance_uid: &str,
+//     sop_class_uid: &str,
+//     dicom_data: &[u8],
+// ) -> Result<()> {
+//     fs::create_dir_all(storage_dir).await?;
 
-    let safe_name = sop_instance_uid
-        .chars()
-        .filter(|c| c.is_ascii_digit() || *c == '.')
-        .collect::<String>();
+//     let safe_name = sop_instance_uid
+//         .chars()
+//         .filter(|c| c.is_ascii_digit() || *c == '.')
+//         .collect::<String>();
 
-    let path = storage_dir.join(format!("{safe_name}.dcm"));
+//     let path = storage_dir.join(format!("{safe_name}.dcm"));
 
-    // Clone the values into owned types so they can be safely passed to the spawned thread.
-    let sop_class_uid_owned = sop_class_uid.to_string();
-    let sop_instance_uid_owned = sop_instance_uid.to_string();
-    let dicom_data_vec = dicom_data.to_vec();
-    let path_clone = path.clone();
+//     // Clone the values into owned types so they can be safely passed to the spawned thread.
+//     let sop_class_uid_owned = sop_class_uid.to_string();
+//     let sop_instance_uid_owned = sop_instance_uid.to_string();
+//     let dicom_data_vec = dicom_data.to_vec();
+//     let path_clone = path.clone();
 
-    tokio::task::spawn_blocking(move || -> Result<()> {
-        use dicom_object::FileDicomObject;
-        use std::fs::OpenOptions;
-        use std::io::Write;
+//     tokio::task::spawn_blocking(move || -> Result<()> {
+//         use dicom_object::FileDicomObject;
+//         use std::fs::OpenOptions;
+//         use std::io::Write;
 
-        // 1. Build the file meta header inside this thread.
-        let meta = dicom_object::meta::FileMetaTableBuilder::new()
-            .media_storage_sop_class_uid(sop_class_uid_owned)
-            .media_storage_sop_instance_uid(sop_instance_uid_owned)
-            .transfer_syntax(entries::EXPLICIT_VR_LITTLE_ENDIAN.uid())
-            .build()?;
+//         // 1. Build the file meta header inside this thread.
+//         let meta = dicom_object::meta::FileMetaTableBuilder::new()
+//             .media_storage_sop_class_uid(sop_class_uid_owned)
+//             .media_storage_sop_instance_uid(sop_instance_uid_owned)
+//             .transfer_syntax(entries::EXPLICIT_VR_LITTLE_ENDIAN.uid())
+//             .build()?;
 
-        // 2. Create an empty file object; now `file_object` is definitely in scope.
-        let file_object = FileDicomObject::new_empty_with_meta(meta);
+//         // 2. Create an empty file object; now `file_object` is definitely in scope.
+//         let file_object = FileDicomObject::new_empty_with_meta(meta);
 
-        // Step A: Write the correct official DICOM header (128B + DICM + Group 0002).
-        file_object.write_to_file(&path_clone)?;
+//         // Step A: Write the correct official DICOM header (128B + DICM + Group 0002).
+//         file_object.write_to_file(&path_clone)?;
 
-        // Step B: Open the file in append mode and add the raw network image bytes.
-        let mut file = OpenOptions::new()
-            //.write(true)
-            .append(true)
-            .open(&path_clone)?;
+//         // Step B: Open the file in append mode and add the raw network image bytes.
+//         let mut file = OpenOptions::new()
+//             //.write(true)
+//             .append(true)
+//             .open(&path_clone)?;
 
-        file.write_all(&dicom_data_vec)?;
-        Ok(())
-    })
-    .await??;
+//         file.write_all(&dicom_data_vec)?;
+//         Ok(())
+//     })
+//     .await??;
 
-    Ok(())
-}
+//     Ok(())
+// }
+
+pub type DicomFuture = Pin<Box<dyn Future<Output = Result<()>> + Send>>;
+
 #[allow(clippy::too_many_arguments)]
-pub async fn c_store(
+pub async fn c_store<F>(
     message_id: Option<u16>,
     sop_class_uid: Option<String>,
     sop_instance_uid: Option<String>,
@@ -147,8 +150,10 @@ pub async fn c_store(
     addr: SocketAddr,
     presentation_context_id: u8,
     scp: &mut AsyncServerAssociation<TcpStream>,
-    dicom_storage_path: &Path,
-) {
+    save_to_file_fn: F,
+) where
+    F: Fn(String, String, Vec<u8>) -> DicomFuture + Send + Sync + 'static,
+{
     let Some(message_id) = message_id else {
         error!(
             "Failed to read the Message ID from the C-STORE-RQ from {}",
@@ -175,11 +180,10 @@ pub async fn c_store(
         addr, message_id, sop_instance_uid
     );
 
-    if let Err(e) = save_dicom_file(
-        dicom_storage_path,
-        &sop_instance_uid,
-        &sop_class_uid,
-        dicom_data,
+    if let Err(e) = save_to_file_fn(
+        sop_instance_uid.clone(),
+        sop_class_uid.clone(),
+        dicom_data.to_vec(),
     )
     .await
     {
