@@ -2,6 +2,7 @@ use super::helper::{command_tag_string, command_tag_u16, save_dicom_file};
 use super::syntax::{ABSTRACT_SYNTAX, C_ECHO_RQ, C_FIND_RQ, C_STORE_RQ, TRANSFER_SYNTAXES};
 use super::{c_echo, c_find, c_store};
 use crate::config::model::Config;
+use crate::dicom::access_control::CustomAccessControl;
 use anyhow::Result;
 use dicom_dictionary_std::tags;
 use dicom_ul::association::ServerAssociationOptions;
@@ -28,9 +29,16 @@ pub async fn start(config: &Config) -> Result<()> {
         let (socket, addr) = listener.accept().await?;
         info!("Connection from {}", addr);
 
+        let server_ae_title = config.server_ae_title.clone();
+
         tokio::task::spawn(async move {
             // Association configuration
-            let mut association_options = ServerAssociationOptions::new(); //.accept_any();
+            //let mut association_options = ServerAssociationOptions::new().accept_any();
+            let mut association_options = ServerAssociationOptions::new()
+                .ae_title(server_ae_title)
+                .ae_access_control(CustomAccessControl);
+            //.ae_title("AE_Server")
+            //.accept_called_ae_title();
 
             for &syntax in ABSTRACT_SYNTAX {
                 association_options = association_options.with_abstract_syntax(syntax);
@@ -300,6 +308,14 @@ pub async fn start(config: &Config) -> Result<()> {
                             "Received an association abort request from {}: {}",
                             addr, source_label
                         );
+                        // warn!("========================================");
+                        // warn!("Client aborted association");
+                        // warn!("Source      : {}", source_label);
+                        // warn!("Peer        : {}", addr);
+                        // warn!("Last command: {:?}", pending_command);
+                        // warn!("Message ID  : {:?}", pending_message_id);
+                        // warn!("Context ID  : {:?}", pending_presentation_context_id);
+                        // warn!("========================================");
                         break;
                     }
 

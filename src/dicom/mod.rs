@@ -1,3 +1,4 @@
+pub mod access_control;
 pub mod dimse;
 pub mod helper;
 pub mod server;

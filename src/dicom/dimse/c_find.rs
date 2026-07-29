@@ -113,11 +113,28 @@ fn c_find_response(message_id: u16, status: u16, has_dataset: bool) -> Result<Ve
     Ok(out)
 }
 
+fn normalize_charset(query: &[u8]) -> Vec<u8> {
+    let mut data = query.to_vec();
+
+    let wrong = b"ISO_IR-192";
+    let correct = b"ISO_IR 192";
+
+    if let Some(pos) = data.windows(wrong.len()).position(|w| w == wrong) {
+        data[pos..pos + wrong.len()].copy_from_slice(correct);
+
+        //tracing::warn!("Normalized ISO_IR-192 -> ISO_IR 192");
+    }
+
+    data
+}
+
 fn parse_filter(query: &[u8]) -> WorklistFilter {
     let mut filter = WorklistFilter::default();
 
+    let normalized_query = normalize_charset(query);
+
     let obj = match InMemDicomObject::read_dataset_with_ts(
-        Cursor::new(query),
+        Cursor::new(normalized_query),
         &entries::IMPLICIT_VR_LITTLE_ENDIAN.erased(),
     ) {
         Ok(obj) => obj,
@@ -147,7 +164,7 @@ fn read_sub_filter(obj: &InMemDicomObject, tag: Tag) -> Option<String> {
 
     match element.value() {
         DicomValue::Sequence(seq) => {
-            let item = &seq.items()[0];
+            let item = seq.items().first()?;
             item.element(tag).ok()?.to_str().ok().map(|s| s.to_string())
         }
         _ => None,
